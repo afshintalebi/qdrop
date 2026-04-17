@@ -28,18 +28,100 @@ const uploadHTML = `
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; width: 80%; max-width: 400px; }
         h2 { color: #333; margin-top: 0; }
         input[type="file"] { margin: 20px 0; width: 100%; }
-        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; transition: background 0.3s; }
         button:hover { background: #0056b3; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
+        
+        /* Progress Bar Styles */
+        .progress-container { display: none; margin-top: 20px; text-align: left; }
+        .progress-bar-bg { width: 100%; background-color: #e9ecef; border-radius: 8px; overflow: hidden; margin-top: 8px; height: 20px; }
+        .progress-bar-fill { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s; }
+        .status-text { font-size: 14px; color: #666; display: flex; justify-content: space-between; }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>Drop File Here 📲</h2>
-        <form action="/receive" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" required>
-            <button type="submit">Upload to Computer</button>
+        <form id="uploadForm">
+            <input type="file" id="fileInput" name="file" required>
+            <button type="submit" id="submitBtn">Upload to Computer</button>
         </form>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="status-text">
+                <span id="statusLabel">Uploading...</span>
+                <span id="percentLabel">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+        </div>
     </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault(); // Prevent default form submission
+
+            var fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length === 0) return;
+
+            var file = fileInput.files[0];
+            var formData = new FormData();
+            formData.append('file', file);
+
+            // UI Elements
+            var submitBtn = document.getElementById('submitBtn');
+            var progressContainer = document.getElementById('progressContainer');
+            var progressBar = document.getElementById('progressBar');
+            var percentLabel = document.getElementById('percentLabel');
+            var statusLabel = document.getElementById('statusLabel');
+
+            // Setup UI for uploading
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Uploading...";
+            progressContainer.style.display = "block";
+
+            // Format file size
+            var fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            statusLabel.innerText = "Sending " + fileSizeMB + " MB...";
+
+            // Create AJAX request
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/receive', true);
+
+            // Listen to progress event
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    var percentComplete = Math.round((event.loaded / event.total) * 100);
+                    progressBar.style.width = percentComplete + '%';
+                    percentLabel.innerText = percentComplete + '%';
+                }
+            };
+
+            // Listen to success/failure
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    // Replace the whole page with the success HTML from Go server
+                    document.body.innerHTML = xhr.responseText;
+                } else {
+                    statusLabel.innerText = "Error uploading file!";
+                    statusLabel.style.color = "red";
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = "Try Again";
+                }
+            };
+
+            xhr.onerror = function() {
+                statusLabel.innerText = "Network Error!";
+                statusLabel.style.color = "red";
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Try Again";
+            };
+
+            // Send the file
+            xhr.send(formData);
+        });
+    </script>
 </body>
 </html>
 `
