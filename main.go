@@ -16,12 +16,61 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
+const uploadHTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QDrop Receive</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; width: 80%; max-width: 400px; }
+        h2 { color: #333; margin-top: 0; }
+        input[type="file"] { margin: 20px 0; width: 100%; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Drop File Here 📲</h2>
+        <form action="/receive" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <button type="submit">Upload to Computer</button>
+        </form>
+    </div>
+</body>
+</html>
+`
+
+const successHTML = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #e6ffed;">
+    <h1 style="color: #28a745;">✅ Success!</h1>
+    <p>File has been sent to the computer.</p>
+    <p>You can close this page.</p>
+</body>
+</html>
+`
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: qdrop <file_or_folder_path>")
+		fmt.Println("Usage:")
+		fmt.Println("  Send a file:    qdrop <file_or_folder_path>")
+		fmt.Println("  Receive a file: qdrop receive")
 		os.Exit(1)
 	}
 	targetPath := os.Args[1]
+
+	// Check if user wants to receive a file
+	if targetPath == "receive" {
+		if err := runReceive(); err != nil {
+			log.Fatalf("Fatal error: %v\n", err)
+		}
+		return
+	}
 
 	// Delegate main logic to 'run' function to handle errors cleanly
 	if err := run(targetPath); err != nil {
@@ -218,4 +267,114 @@ func printUI(targetPath, downloadURL string, isDir bool) {
 
 	fmt.Printf("\n🔗 Or open manually: %s\n", downloadURL)
 	fmt.Println("⏳ Waiting for download... (Auto-closes when finished)")
+}
+
+// runReceive orchestrates the setup for receiving files from phone to computer
+func runReceive() error {
+	// 1. Network setup (reused logic to avoid modifying original run function)
+	ip, err := getLocalIP()
+	if err != nil {
+		return fmt.Errorf("finding local IP: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", ":0") // Dynamic port
+	if err != nil {
+		return fmt.Errorf("finding a free port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	// 2. Prepare URL and Server
+	downloadURL := fmt.Sprintf("http://%s:%d/receive", ip, port)
+	done := make(chan struct{})
+	srv := &http.Server{}
+
+	// Register the receive handler
+	http.HandleFunc("/receive", createUploadHandler(done))
+
+	// 3. UI output
+	printReceiveUI(downloadURL)
+
+	// 4. Start Server
+	go func() {
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v\n", err)
+		}
+	}()
+
+	// 5. Wait for upload to finish
+	<-done
+	fmt.Println("\n✅ File received successfully! Shutting down gracefully...")
+
+	// 6. Graceful Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return srv.Shutdown(ctx)
+}
+
+// createUploadHandler handles both GET (showing form) and POST (receiving file) requests
+func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Serve the HTML upload form to the phone
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(uploadHTML))
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			// Parse the multipart form (Max 10 MB in RAM, rest streamed to disk)
+			err := r.ParseMultipartForm(10 << 20)
+			if err != nil {
+				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				return
+			}
+
+			// Get the file from the request
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				http.Error(w, "Failed to get file", http.StatusBadRequest)
+				return
+			}
+			defer file.Close()
+
+			// Create a new file in the current directory on the computer
+			dst, err := os.Create(header.Filename)
+			if err != nil {
+				http.Error(w, "Failed to save file on server", http.StatusInternalServerError)
+				return
+			}
+			defer dst.Close()
+
+			// Stream the uploaded file to disk
+			if _, err := io.Copy(dst, file); err != nil {
+				http.Error(w, "Failed to save file", http.StatusInternalServerError)
+				return
+			}
+
+			log.Printf("📥 Saved file: %s (%d bytes)\n", header.Filename, header.Size)
+
+			// Send success HTML to phone
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(successHTML))
+
+			// Signal the main goroutine to shut down the server
+			go func() {
+				done <- struct{}{}
+			}()
+		}
+	}
+}
+
+// printReceiveUI displays the terminal interface for the receive mode
+func printReceiveUI(downloadURL string) {
+	fmt.Println(strings.Repeat("=", 45))
+	fmt.Println("📥 RECEIVE MODE")
+	fmt.Println("Files will be saved in the current directory.")
+	fmt.Println(strings.Repeat("=", 45))
+	
+	// Print compact QR code
+	qrterminal.GenerateHalfBlock(downloadURL, qrterminal.L, os.Stdout)
+	
+	fmt.Printf("\n🔗 Or open manually on your phone: %s\n", downloadURL)
+	fmt.Println("⏳ Waiting for you to upload a file... (Auto-closes when finished)")
 }
