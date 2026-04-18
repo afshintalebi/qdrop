@@ -39,6 +39,12 @@ const uploadHTML = `
         #startUploadBtn:hover { background: #218838; }
         #startUploadBtn:disabled { background: #cccccc; cursor: not-allowed; }
 
+        /* Loader Styles */
+        #processingBox { display: none; margin: 15px 0; text-align: center; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 10px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .processing-text { font-size: 14px; color: #666; font-weight: 600; }
+
         /* Progress Bar Styles */
         .progress-container { display: none; margin-top: 20px; text-align: left; }
         .progress-bar-bg { width: 100%; background-color: #e9ecef; border-radius: 8px; overflow: hidden; margin-top: 8px; height: 20px; }
@@ -64,6 +70,11 @@ const uploadHTML = `
             </button>
         </div>
 
+        <div id="processingBox">
+            <div class="loader"></div>
+            <div class="processing-text">Processing files, please wait...</div>
+        </div>
+
         <div id="summaryBox"></div>
         
         <button id="startUploadBtn" onclick="startUpload()">Start Upload</button>
@@ -85,78 +96,99 @@ const uploadHTML = `
 
         function handleSelection(files) {
             if (files.length === 0) return;
-            pendingFiles = files;
-            totalSizeBytes = 0;
+            
+            // Show loader and hide other UI immediately
+            document.getElementById('processingBox').style.display = "block";
+            document.getElementById('summaryBox').style.display = "none";
+            document.getElementById('startUploadBtn').style.display = "none";
 
-            for (var i = 0; i < files.length; i++) {
-                totalSizeBytes += files[i].size;
-            }
+            // Use setTimeout to yield the main thread, allowing the browser to render the loader
+            setTimeout(function() {
+                pendingFiles = files;
+                totalSizeBytes = 0;
 
-            var sizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
-            var summaryBox = document.getElementById('summaryBox');
-            var startBtn = document.getElementById('startUploadBtn');
+                for (var i = 0; i < files.length; i++) {
+                    totalSizeBytes += files[i].size;
+                }
 
-            summaryBox.innerText = files.length + " item(s) selected (" + sizeMB + " MB)";
-            summaryBox.style.display = "block";
-            startBtn.style.display = "block";
+                var sizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
+                var summaryBox = document.getElementById('summaryBox');
+                var startBtn = document.getElementById('startUploadBtn');
+
+                summaryBox.innerText = files.length + " item(s) selected (" + sizeMB + " MB)";
+                
+                // Hide loader, show summary and start button
+                document.getElementById('processingBox').style.display = "none";
+                summaryBox.style.display = "block";
+                startBtn.style.display = "block";
+            }, 50); // 50ms delay is enough for the UI to update
         }
 
         function startUpload() {
             if (pendingFiles.length === 0) return;
 
-            var formData = new FormData();
-            for (var i = 0; i < pendingFiles.length; i++) {
-                var file = pendingFiles[i];
-                // webkitRelativePath contains the full folder structure (e.g. folder1/folder2/file.jpg)
-                var path = file.webkitRelativePath || file.name;
-                
-                // Do not rely on browser's filename parameter, send the exact path explicitly
-                formData.append('files', file);
-                formData.append('paths', path);
-            }
-
-            // UI Elements Update
+            // UI Elements Update for preparation phase
             document.getElementById('btnGroup').style.display = "none";
-            document.getElementById('startUploadBtn').disabled = true;
-            document.getElementById('startUploadBtn').innerText = "Uploading...";
+            var startBtn = document.getElementById('startUploadBtn');
+            startBtn.disabled = true;
+            startBtn.innerText = "Preparing upload...";
+            document.getElementById('processingBox').style.display = "block";
             
-            var progressContainer = document.getElementById('progressContainer');
-            var progressBar = document.getElementById('progressBar');
-            var percentLabel = document.getElementById('percentLabel');
-            var statusLabel = document.getElementById('statusLabel');
-            
-            progressContainer.style.display = "block";
-
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/receive', true);
-
-            xhr.upload.onprogress = function(event) {
-                if (event.lengthComputable) {
-                    var percentComplete = Math.round((event.loaded / event.total) * 100);
-                    progressBar.style.width = percentComplete + '%';
-                    percentLabel.innerText = percentComplete + '%';
+            // Yield thread again because building FormData with thousands of files takes time
+            setTimeout(function() {
+                var formData = new FormData();
+                for (var i = 0; i < pendingFiles.length; i++) {
+                    var file = pendingFiles[i];
+                    // webkitRelativePath contains the full folder structure (e.g. folder1/folder2/file.jpg)
+                    var path = file.webkitRelativePath || file.name;
+                    
+                    // Do not rely on browser's filename parameter, send the exact path explicitly
+                    formData.append('files', file);
+                    formData.append('paths', path);
                 }
-            };
 
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    document.body.innerHTML = xhr.responseText;
-                } else {
-                    statusLabel.innerText = "Error uploading data!";
+                // Hide loader, show progress bar
+                document.getElementById('processingBox').style.display = "none";
+                startBtn.innerText = "Uploading...";
+                
+                var progressContainer = document.getElementById('progressContainer');
+                var progressBar = document.getElementById('progressBar');
+                var percentLabel = document.getElementById('percentLabel');
+                var statusLabel = document.getElementById('statusLabel');
+                
+                progressContainer.style.display = "block";
+
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', '/receive', true);
+
+                xhr.upload.onprogress = function(event) {
+                    if (event.lengthComputable) {
+                        var percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        percentLabel.innerText = percentComplete + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        document.body.innerHTML = xhr.responseText;
+                    } else {
+                        statusLabel.innerText = "Error uploading data!";
+                        statusLabel.style.color = "red";
+                        startBtn.innerText = "Try Again";
+                        startBtn.disabled = false;
+                    }
+                };
+
+                xhr.onerror = function() {
+                    statusLabel.innerText = "Network Error!";
                     statusLabel.style.color = "red";
-                    document.getElementById('startUploadBtn').innerText = "Try Again";
-                    document.getElementById('startUploadBtn').disabled = false;
-                }
-            };
+                    startBtn.innerText = "Try Again";
+                    startBtn.disabled = false;
+                };
 
-            xhr.onerror = function() {
-                statusLabel.innerText = "Network Error!";
-                statusLabel.style.color = "red";
-                document.getElementById('startUploadBtn').innerText = "Try Again";
-                document.getElementById('startUploadBtn').disabled = false;
-            };
-
-            xhr.send(formData);
+                xhr.send(formData);
+            }, 50);
         }
 
         document.getElementById('fileInput').addEventListener('change', function(e) { handleSelection(this.files); });
