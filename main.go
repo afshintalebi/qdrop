@@ -27,25 +27,46 @@ const uploadHTML = `
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; margin: 0; }
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; width: 80%; max-width: 400px; }
         h2 { color: #333; margin-top: 0; }
-        input[type="file"] { margin: 20px 0; width: 100%; }
-        button { background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%; transition: background 0.3s; }
-        button:hover { background: #0056b3; }
-        button:disabled { background: #cccccc; cursor: not-allowed; }
         
+        .btn-group { display: flex; gap: 10px; margin: 20px 0; }
+        .select-btn { flex: 1; background: #e4e6eb; color: #050505; border: none; padding: 14px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.3s; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+        .select-btn:hover { background: #d8dadf; }
+        .icon { font-size: 24px; }
+        
+        #summaryBox { display: none; margin: 15px 0; padding: 10px; background: #e6f2ff; border-radius: 8px; color: #0056b3; font-size: 14px; font-weight: 600; }
+        
+        #startUploadBtn { display: none; width: 100%; background: #28a745; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: background 0.3s; }
+        #startUploadBtn:hover { background: #218838; }
+        #startUploadBtn:disabled { background: #cccccc; cursor: not-allowed; }
+
         /* Progress Bar Styles */
         .progress-container { display: none; margin-top: 20px; text-align: left; }
         .progress-bar-bg { width: 100%; background-color: #e9ecef; border-radius: 8px; overflow: hidden; margin-top: 8px; height: 20px; }
-        .progress-bar-fill { height: 100%; background-color: #28a745; width: 0%; transition: width 0.2s; }
+        .progress-bar-fill { height: 100%; background-color: #007bff; width: 0%; transition: width 0.2s; }
         .status-text { font-size: 14px; color: #666; display: flex; justify-content: space-between; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>Drop File Here 📲</h2>
-        <form id="uploadForm">
-            <input type="file" id="fileInput" name="file" required>
-            <button type="submit" id="submitBtn">Upload to Computer</button>
-        </form>
+        <h2>Drop Here 📲</h2>
+        <p style="color: #666; font-size: 14px; margin-bottom: 20px;">Step 1: Select files or a folder to send.</p>
+        
+        <!-- Hidden Inputs for Files and Folders -->
+        <input type="file" id="fileInput" multiple style="display: none;">
+        <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
+
+        <div class="btn-group" id="btnGroup">
+            <button class="select-btn" type="button" onclick="document.getElementById('fileInput').click()">
+                <span class="icon">📄</span> Select File(s)
+            </button>
+            <button class="select-btn" type="button" onclick="document.getElementById('folderInput').click()">
+                <span class="icon">📁</span> Select Folder
+            </button>
+        </div>
+
+        <div id="summaryBox"></div>
+        
+        <button id="startUploadBtn" onclick="startUpload()">Start Upload</button>
 
         <div class="progress-container" id="progressContainer">
             <div class="status-text">
@@ -59,37 +80,56 @@ const uploadHTML = `
     </div>
 
     <script>
-        document.getElementById('uploadForm').addEventListener('submit', function(e) {
-            e.preventDefault(); // Prevent default form submission
+        var pendingFiles = [];
+        var totalSizeBytes = 0;
 
-            var fileInput = document.getElementById('fileInput');
-            if (fileInput.files.length === 0) return;
+        function handleSelection(files) {
+            if (files.length === 0) return;
+            pendingFiles = files;
+            totalSizeBytes = 0;
 
-            var file = fileInput.files[0];
+            for (var i = 0; i < files.length; i++) {
+                totalSizeBytes += files[i].size;
+            }
+
+            var sizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(2);
+            var summaryBox = document.getElementById('summaryBox');
+            var startBtn = document.getElementById('startUploadBtn');
+
+            summaryBox.innerText = files.length + " item(s) selected (" + sizeMB + " MB)";
+            summaryBox.style.display = "block";
+            startBtn.style.display = "block";
+        }
+
+        function startUpload() {
+            if (pendingFiles.length === 0) return;
+
             var formData = new FormData();
-            formData.append('file', file);
+            for (var i = 0; i < pendingFiles.length; i++) {
+                var file = pendingFiles[i];
+                // webkitRelativePath contains the full folder structure (e.g. folder1/folder2/file.jpg)
+                var path = file.webkitRelativePath || file.name;
+                
+                // Do not rely on browser's filename parameter, send the exact path explicitly
+                formData.append('files', file);
+                formData.append('paths', path);
+            }
 
-            // UI Elements
-            var submitBtn = document.getElementById('submitBtn');
+            // UI Elements Update
+            document.getElementById('btnGroup').style.display = "none";
+            document.getElementById('startUploadBtn').disabled = true;
+            document.getElementById('startUploadBtn').innerText = "Uploading...";
+            
             var progressContainer = document.getElementById('progressContainer');
             var progressBar = document.getElementById('progressBar');
             var percentLabel = document.getElementById('percentLabel');
             var statusLabel = document.getElementById('statusLabel');
-
-            // Setup UI for uploading
-            submitBtn.disabled = true;
-            submitBtn.innerText = "Uploading...";
+            
             progressContainer.style.display = "block";
 
-            // Format file size
-            var fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-            statusLabel.innerText = "Sending " + fileSizeMB + " MB...";
-
-            // Create AJAX request
             var xhr = new XMLHttpRequest();
             xhr.open('POST', '/receive', true);
 
-            // Listen to progress event
             xhr.upload.onprogress = function(event) {
                 if (event.lengthComputable) {
                     var percentComplete = Math.round((event.loaded / event.total) * 100);
@@ -98,29 +138,29 @@ const uploadHTML = `
                 }
             };
 
-            // Listen to success/failure
             xhr.onload = function() {
                 if (xhr.status === 200) {
-                    // Replace the whole page with the success HTML from Go server
                     document.body.innerHTML = xhr.responseText;
                 } else {
-                    statusLabel.innerText = "Error uploading file!";
+                    statusLabel.innerText = "Error uploading data!";
                     statusLabel.style.color = "red";
-                    submitBtn.disabled = false;
-                    submitBtn.innerText = "Try Again";
+                    document.getElementById('startUploadBtn').innerText = "Try Again";
+                    document.getElementById('startUploadBtn').disabled = false;
                 }
             };
 
             xhr.onerror = function() {
                 statusLabel.innerText = "Network Error!";
                 statusLabel.style.color = "red";
-                submitBtn.disabled = false;
-                submitBtn.innerText = "Try Again";
+                document.getElementById('startUploadBtn').innerText = "Try Again";
+                document.getElementById('startUploadBtn').disabled = false;
             };
 
-            // Send the file
             xhr.send(formData);
-        });
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) { handleSelection(this.files); });
+        document.getElementById('folderInput').addEventListener('change', function(e) { handleSelection(this.files); });
     </script>
 </body>
 </html>
@@ -131,7 +171,7 @@ const successHTML = `
 <html>
 <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background: #e6ffed;">
     <h1 style="color: #28a745;">✅ Success!</h1>
-    <p>File has been sent to the computer.</p>
+    <p>Data has been sent to the computer.</p>
     <p>You can close this page.</p>
 </body>
 </html>
@@ -385,7 +425,7 @@ func runReceive() error {
 
 	// 5. Wait for upload to finish
 	<-done
-	fmt.Println("\n✅ File received successfully! Shutting down gracefully...")
+	fmt.Println("\n✅ Data received successfully! Shutting down gracefully...")
 
 	// 6. Graceful Shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -404,36 +444,75 @@ func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
 		}
 
 		if r.Method == http.MethodPost {
-			// Parse the multipart form (Max 10 MB in RAM, rest streamed to disk)
-			err := r.ParseMultipartForm(10 << 20)
+			// Parse the multipart form (Max 32 MB in RAM, rest streamed to disk)
+			err := r.ParseMultipartForm(32 << 20)
 			if err != nil {
 				http.Error(w, "Failed to parse form", http.StatusBadRequest)
 				return
 			}
 
-			// Get the file from the request
-			file, header, err := r.FormFile("file")
-			if err != nil {
-				http.Error(w, "Failed to get file", http.StatusBadRequest)
-				return
-			}
-			defer file.Close()
+			// Extract multiple files instead of just one
+			files := r.MultipartForm.File["files"]
+			// Extract the explicit paths sent from JS
+			paths := r.MultipartForm.Value["paths"]
 
-			// Create a new file in the current directory on the computer
-			dst, err := os.Create(header.Filename)
-			if err != nil {
-				http.Error(w, "Failed to save file on server", http.StatusInternalServerError)
-				return
-			}
-			defer dst.Close()
-
-			// Stream the uploaded file to disk
-			if _, err := io.Copy(dst, file); err != nil {
-				http.Error(w, "Failed to save file", http.StatusInternalServerError)
+			if len(files) == 0 {
+				http.Error(w, "No files found", http.StatusBadRequest)
 				return
 			}
 
-			log.Printf("📥 Saved file: %s (%d bytes)\n", header.Filename, header.Size)
+			// Iterate over all uploaded files and recreate folder structure
+			for i, fileHeader := range files {
+				
+				// Read the explicit path, fallback to filename if not available
+				rawPath := fileHeader.Filename
+				if i < len(paths) && paths[i] != "" {
+					rawPath = paths[i]
+				}
+
+				// Convert JS forward slashes to OS-specific slashes (e.g., for Windows)
+				cleanPath := filepath.Clean(filepath.FromSlash(rawPath))
+				
+				// Security check: Prevent directory traversal (e.g. ../../)
+				if strings.Contains(cleanPath, "..") {
+					log.Printf("⚠️ Blocked unsafe file path: %s", cleanPath)
+					continue
+				}
+
+				// Create the directory structure for this file
+				targetDir := filepath.Dir(cleanPath)
+				if targetDir != "." {
+					if err := os.MkdirAll(targetDir, 0755); err != nil {
+						log.Printf("Failed to create directory %s: %v", targetDir, err)
+						continue
+					}
+				}
+
+				// Open the uploaded file stream
+				file, err := fileHeader.Open()
+				if err != nil {
+					log.Printf("Failed to open file %s: %v", cleanPath, err)
+					continue
+				}
+
+				// Create the destination file on the computer's disk
+				dst, err := os.Create(cleanPath)
+				if err != nil {
+					log.Printf("Failed to save file on server %s: %v", cleanPath, err)
+					file.Close()
+					continue
+				}
+
+				// Stream the data from RAM/Temp directly into the destination file
+				if _, err := io.Copy(dst, file); err != nil {
+					log.Printf("Failed to copy file content %s: %v", cleanPath, err)
+				} else {
+					log.Printf("📥 Saved: %s", cleanPath)
+				}
+
+				dst.Close()
+				file.Close()
+			}
 
 			// Send success HTML to phone
 			w.Header().Set("Content-Type", "text/html")
@@ -451,12 +530,12 @@ func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
 func printReceiveUI(downloadURL string) {
 	fmt.Println(strings.Repeat("=", 45))
 	fmt.Println("📥 RECEIVE MODE")
-	fmt.Println("Files will be saved in the current directory.")
+	fmt.Println("Data will be saved in the current directory.")
 	fmt.Println(strings.Repeat("=", 45))
 	
 	// Print compact QR code
 	qrterminal.GenerateHalfBlock(downloadURL, qrterminal.L, os.Stdout)
 	
 	fmt.Printf("\n🔗 Or open manually on your phone: %s\n", downloadURL)
-	fmt.Println("⏳ Waiting for you to upload a file... (Auto-closes when finished)")
+	fmt.Println("⏳ Waiting for you to upload data... (Auto-closes when finished)")
 }
