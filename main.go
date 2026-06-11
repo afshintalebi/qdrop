@@ -142,9 +142,9 @@ const uploadHTML = `
                     // webkitRelativePath contains the full folder structure (e.g. folder1/folder2/file.jpg)
                     var path = file.webkitRelativePath || file.name;
                     
-                    // Do not rely on browser's filename parameter, send the exact path explicitly
-                    formData.append('files', file);
-                    formData.append('paths', path);
+                    // Hack for streaming: Use the exact path as the field name!
+                    // This allows the Go backend to read the path instantly without waiting for arrays
+                    formData.append(path, file, file.name);
                 }
 
                 // Hide loader, show progress bar
@@ -476,30 +476,28 @@ func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
 		}
 
 		if r.Method == http.MethodPost {
-			// Parse the multipart form (Max 32 MB in RAM, rest streamed to disk)
-			err := r.ParseMultipartForm(32 << 20)
+			// Using MultipartReader for DIRECT STREAMING to disk!
+			// This bypasses RAM buffering completely and eliminates double-disk writes.
+			reader, err := r.MultipartReader()
 			if err != nil {
-				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				http.Error(w, "Failed to read multipart data", http.StatusBadRequest)
 				return
 			}
 
-			// Extract multiple files instead of just one
-			files := r.MultipartForm.File["files"]
-			// Extract the explicit paths sent from JS
-			paths := r.MultipartForm.Value["paths"]
+			for {
+				part, err := reader.NextPart()
+				if err == io.EOF {
+					break // Finished reading all parts
+				}
+				if err != nil {
+					log.Printf("Error reading part: %v", err)
+					break
+				}
 
-			if len(files) == 0 {
-				http.Error(w, "No files found", http.StatusBadRequest)
-				return
-			}
-
-			// Iterate over all uploaded files and recreate folder structure
-			for i, fileHeader := range files {
-				
-				// Read the explicit path, fallback to filename if not available
-				rawPath := fileHeader.Filename
-				if i < len(paths) && paths[i] != "" {
-					rawPath = paths[i]
+				// We injected the exact file path into the 'name' attribute in JS
+				rawPath := part.FormName()
+				if rawPath == "" {
+					continue
 				}
 
 				// Convert JS forward slashes to OS-specific slashes (e.g., for Windows)
@@ -520,30 +518,21 @@ func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
 					}
 				}
 
-				// Open the uploaded file stream
-				file, err := fileHeader.Open()
-				if err != nil {
-					log.Printf("Failed to open file %s: %v", cleanPath, err)
-					continue
-				}
-
 				// Create the destination file on the computer's disk
 				dst, err := os.Create(cleanPath)
 				if err != nil {
-					log.Printf("Failed to save file on server %s: %v", cleanPath, err)
-					file.Close()
+					log.Printf("Failed to create file on server %s: %v", cleanPath, err)
 					continue
 				}
 
-				// Stream the data from RAM/Temp directly into the destination file
-				if _, err := io.Copy(dst, file); err != nil {
-					log.Printf("Failed to copy file content %s: %v", cleanPath, err)
+				// Stream the data directly from the Network Socket to the Disk! (Zero RAM overhead)
+				if _, err := io.Copy(dst, part); err != nil {
+					log.Printf("Failed to stream file content %s: %v", cleanPath, err)
 				} else {
-					log.Printf("📥 Saved: %s", cleanPath)
+					log.Printf("📥 Streamed & Saved: %s", cleanPath)
 				}
 
 				dst.Close()
-				file.Close()
 			}
 
 			// Send success HTML to phone
@@ -561,7 +550,7 @@ func createUploadHandler(done chan<- struct{}) http.HandlerFunc {
 // printReceiveUI displays the terminal interface for the receive mode
 func printReceiveUI(downloadURL string) {
 	fmt.Println(strings.Repeat("=", 45))
-	fmt.Println("📥 RECEIVE MODE")
+	fmt.Println("📥 RECEIVE MODE (Ultra-Fast Streaming)")
 	fmt.Println("Data will be saved in the current directory.")
 	fmt.Println(strings.Repeat("=", 45))
 	
