@@ -16,6 +16,9 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
+// AppVersion defines the current version of the QDrop CLI tool
+const AppVersion = "v1.4.1"
+
 const uploadHTML = `
 <!DOCTYPE html>
 <html lang="en">
@@ -212,11 +215,18 @@ const successHTML = `
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage:")
-		fmt.Println("  Send a file:    qdrop <file_or_folder_path>")
-		fmt.Println("  Receive a file: qdrop receive")
+		fmt.Println("  Send a file/folder: qdrop <file_or_folder_path>")
+		fmt.Println("  Receive files:      qdrop receive")
+		fmt.Println("  Show version:       qdrop --version")
 		os.Exit(1)
 	}
 	targetPath := os.Args[1]
+
+	// Check if user wants to see the version
+	if targetPath == "--version" || targetPath == "-v" || targetPath == "version" {
+		fmt.Printf("QDrop version %s\n", AppVersion)
+		return
+	}
 
 	// Check if user wants to receive a file
 	if targetPath == "receive" {

@@ -31,46 +31,53 @@ go install github.com/afshintalebi/qdrop@latest
 
 ## 📖 Usage
 Using QDrop is incredibly simple. Just open your terminal anywhere and type qdrop followed by the file, folder, or command you want to execute.
+1. Check Version:
 
-1. Share a single file (Computer ➔ Phone):
+```bash
+qdrop --version
+```
+
+2. Share a single file (Computer ➔ Phone):
 ```bash
 qdrop /path/to/your/image.png
 ```
 
-2. Share an entire folder (Computer ➔ Phone):
+3. Share an entire folder (Computer ➔ Phone):
 ```bash
 qdrop /path/to/your/folder/
 ```
+
 What happens next?
   1. QDrop will instantly generate a QR Code right in your terminal.
   2. Scan the QR code with your phone's camera (ensure both devices are on the same Wi-Fi).
   3. The file/folder downloads immediately to your phone.
   4. QDrop detects the successful transfer and safely shuts down. Done! 🎉
 
-3. Receive files/folders (Phone ➔ Computer):
+4. Receive files/folders (Phone ➔ Computer):
 Want to send massive videos or entire folders from your phone to your computer? Navigate to your desired folder in the terminal and type:
 
 ```bash
 qdrop receive
 ```
+
 What happens next?
-  1. Scan the generated QR Code with your phone.
-  2. A clean, minimal web interface opens on your phone's browser.
-  3. Select individual files or an entire folder.
-  4. Review your selection (e.g., "15 items selected (1024 MB)").
-  5. Tap Start Upload and watch the progress bar.
-  6. The files and their directory structure are streamed directly to your computer, and QDrop shuts down automatically!
+1. Scan the generated QR Code with your phone.
+2. A clean, minimal web interface opens on your phone's browser.
+3. Select individual files or an entire folder.
+4. Review your selection (e.g., "15 items selected (1024 MB)").
+5. Tap Start Upload and watch the progress bar.
+6. The files and their directory structure are streamed directly to your computer, and QDrop shuts down automatically!
 
 ## 🧠 Under the Hood (For Developers)
-- **Direct Streaming Architecture**: Instead of buffering large uploads in RAM or OS temp files (ParseMultipartForm), QDrop uses Go's MultipartReader to stream incoming network bytes directly into the final destination file on disk. This doubles the write speed and allows for theoretically infinite file size transfers without crashing.
-- **Client-Optimized Uploads**: Instead of forcing mobile browsers to zip heavy folders (which causes crashes), QDrop uploads raw files using the webkitdirectory path. The Go backend handles the heavy lifting by perfectly reconstructing the nested directory structure.
-- **Non-Blocking JS UI**: To prevent the mobile browser from freezing when processing folders with thousands of files, QDrop utilizes setTimeout to yield the main thread. This allows a smooth CSS spinner to render while JavaScript handles the heavy counting in the background.
-- **Dynamic Port Allocation**: By explicitly asking the OS to listen on port :0, QDrop avoids "address already in use" errors.
-- **Security**: Incoming file paths are strictly sanitized using `filepath.Clean` to prevent Directory Traversal (`../`) attacks.
+
+- **Direct Streaming Architecture:** Instead of buffering large uploads in RAM or OS temp files, QDrop uses Go's MultipartReader to stream incoming network bytes directly into the final destination file on disk. This doubles the write speed and allows for theoretically infinite file size transfers without crashing.
+- **Client-Optimized Uploads:** Instead of forcing mobile browsers to zip heavy folders (which causes crashes), QDrop uploads raw files using the webkitdirectory path. The Go backend handles the heavy lifting by perfectly reconstructing the nested directory structure.
+- **Non-Blocking JS UI:** To prevent the mobile browser from freezing when processing folders with thousands of files, QDrop utilizes setTimeout to yield the main thread. This allows a smooth CSS spinner to render while JavaScript handles the heavy counting in the background.
+- **Dynamic Port Allocation:** By explicitly asking the OS to listen on port :0, QDrop avoids "address already in use" errors.
+- **Security:** Incoming file paths are strictly sanitized using filepath.Clean to prevent Directory Traversal (../) attacks.
 
 ## 🤝 Contributing
 Pull requests are welcome! Feel free to open issues if you want to suggest new features or report bugs.
 
 ## 📄 License
 This project is licensed under the MIT License.
-
